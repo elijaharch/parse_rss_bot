@@ -86,8 +86,11 @@ def fetch_feed_with_timeout(url, timeout=10):
         return {"entries": []}
 
 def fetch_new_articles(lang, feeds):
-    """Fetch new articles from given feeds."""
+    """Fetch new articles from given feeds, only if they were published in the last few minutes."""
     new_articles = []
+    now_utc = datetime.now(pytz.UTC)  # Get current UTC time
+    threshold = timedelta(minutes=5)  # Define threshold for "latest news" (e.g., 5 minutes)
+    
     for feed in feeds:
         feed_url = feed["url"]
         logging.info(f"Fetching feed: {feed_url}")
@@ -102,23 +105,24 @@ def fetch_new_articles(lang, feeds):
             published_time = entry.get("published", None)
             if published_time:
                 try:
-                    # Ensure time is parsed with timezone info
+                    # Parse the published time
                     published_datetime = dateutil_parser.parse(published_time)
                     
                     # Convert to UTC for consistent comparison
                     published_datetime = published_datetime.astimezone(pytz.UTC)
-                    now_utc = datetime.now(pytz.UTC)
-                    
+
                     # Calculate time difference
                     time_difference = now_utc - published_datetime
                     
-                    # Compare with a timedelta threshold (e.g., 2 minutes)
-                    if time_difference <= timedelta(minutes=2):
+                    # Only consider articles published within the last 'X' minutes
+                    if time_difference <= threshold:
+                        # Only post if this article has not been posted already
                         if entry.link not in posted_articles[lang]:
                             new_articles.append(entry)
                             posted_articles[lang].add(entry.link)
                 except Exception as e:
                     logging.error(f"Error processing publish date for {entry.title}: {e}")
+                    
     return new_articles
 
 def format_article_message(article):
@@ -238,6 +242,9 @@ if __name__ == "__main__":
     while True:
         try:
             bot.infinity_polling()
+        except KeyboardInterrupt:
+            logging.info("KeyboardInterrupt received. Stopping the bot.")            
+            bot.stop_polling()
         except Exception as e:
             logging.error(f"Bot polling crashed: {e}")
-            time.sleep(5)    
+            time.sleep(5)
