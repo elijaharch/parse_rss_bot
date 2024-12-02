@@ -7,6 +7,9 @@ from datetime import datetime, timedelta
 from dateutil import parser as dateutil_parser
 from dotenv import load_dotenv
 import os
+import logging
+import requests
+import pytz
 
 load_dotenv()
 
@@ -42,28 +45,67 @@ user_states = {}
 
 FETCH_INTERVAL = 15
 
-def fetch_new_articles(language, feeds):
+# Logging Configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("bot.log"),
+        logging.StreamHandler()
+    ]
+)
+
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+
+def fetch_feed_with_timeout(url, timeout=10):
+    session = requests.Session()
+    retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+
+    try:
+        response = session.get(url, timeout=timeout)
+        response.raise_for_status()
+        return feedparser.parse(response.content)
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to fetch feed {url}: {e}")
+        return {"entries": []}
+
+def fetch_new_articles(lang, feeds):
+    """Fetch new articles from given feeds."""
     new_articles = []
     for feed in feeds:
-        url = feed["url"]
-        source = feed["source"]
-        feed_parsed = feedparser.parse(url)
+        feed_url = feed["url"]
+        logging.info(f"Fetching feed: {feed_url}")
+        try:
+            feed_parsed = fetch_feed_with_timeout(feed_url)
+            logging.info(f"Feed parsed successfully for {feed_url}. Found {len(feed_parsed.entries)} entries.")
+        except Exception as e:
+            logging.error(f"Failed to parse feed {feed_url}: {e}")
+            continue
+
         for entry in feed_parsed.entries:
-            # Check if the article is recent (1-2 minutes ago)
-            published_time = entry.get('published', None)
+            published_time = entry.get("published", None)
             if published_time:
                 try:
+                    # Ensure time is parsed with timezone info
                     published_datetime = dateutil_parser.parse(published_time)
-                    time_difference = datetime.now(published_datetime.tzinfo) - published_datetime
-
+                    
+                    # Convert to UTC for consistent comparison
+                    published_datetime = published_datetime.astimezone(pytz.UTC)
+                    now_utc = datetime.now(pytz.UTC)
+                    
+                    # Calculate time difference
+                    time_difference = now_utc - published_datetime
+                    
+                    # Compare with a timedelta threshold (e.g., 2 minutes)
                     if time_difference <= timedelta(minutes=2):
-                        if entry.link not in posted_articles[language]:
+                        if entry.link not in posted_articles[lang]:
                             new_articles.append(entry)
-                            posted_articles[language].add(entry.link)
+                            posted_articles[lang].add(entry.link)
                 except Exception as e:
-                    print(f"Error processing publish date: {e}")
+                    logging.error(f"Error processing publish date for {entry.title}: {e}")
     return new_articles
-
 
 def format_article_message(article):
     return f"📰 {article.title}\n<a href='{article.link}'>Читать дальше</a>"
@@ -140,40 +182,48 @@ def handle_cancel(call):
         print(f"No user state found for chat_id {chat_id}")
         
 def monitor_news():
+    """Continuously fetch and post news for all channels."""
     while True:
-        for lang, channel_data in CHANNEL_FEEDS.items():
-            language = channel_data['language']
-            feeds = channel_data['feeds']
-
-            print(f"Fetching news for {language} on channel {lang}...")  # Logs channel info
+        for channel, config in CHANNEL_FEEDS.items():
+            language = config["language"]
+            feeds = config["feeds"]
+            logging.info(f"Fetching news for {language} on channel {channel}...")
 
             try:
-                # Fetch new articles for the specified language
-                new_articles = fetch_new_articles(language)
-                if not new_articles:
-                    print(f"No new articles found for {language}. Waiting for {FETCH_INTERVAL} seconds...")
-                    time.sleep(FETCH_INTERVAL)  # Wait for the next fetch interval
-                    continue  # Skip to the next channel or language
-
-                # If new articles are found, post them
-                print(f"Found {len(new_articles)} new articles in {language}")
-                for article in new_articles:
-                    try:
+                new_articles = fetch_new_articles(language, feeds)
+                if new_articles:
+                    for article in new_articles:
                         message = format_article_message(article)
-                        bot.send_message(lang, message, parse_mode="HTML")  # Send to the appropriate channel
-                        print(f"Posted article: {article.title}")
-                    except Exception as e:
-                        logging.error(f"Failed to send message for article {article.title}: {e}")
-                        print(f"Failed to send message for article {article.title}: {e}")
-            
+                        try:
+                            bot.send_message(channel, message, parse_mode="HTML")
+                            logging.info(f"Message sent to {channel}: {article.title}")
+                        except Exception as e:
+                            logging.error(f"Failed to send message for article {article.title}: {e}")
+                else:
+                    logging.info(f"No new articles found for {language} on channel {channel}.")
             except Exception as e:
                 logging.error(f"Error fetching articles for {language}: {e}")
-                print(f"Error fetching articles for {language}: {e}")
-                
-            # Wait before fetching again (fetch interval)
-            print(f"Waiting for {FETCH_INTERVAL} seconds before fetching again...")
-            time.sleep(FETCH_INTERVAL)
+
+        logging.info(f"Waiting {FETCH_INTERVAL} seconds before the next fetch...")
+        time.sleep(FETCH_INTERVAL)
+
+def safe_monitor_news():
+    """Wrapper to restart monitor_news in case of crashes."""
+    while True:
+        try:
+            monitor_news()
+        except Exception as e:
+            logging.error(f"Monitor news loop crashed: {e}")
+            time.sleep(5)  # Wait before restarting
         
 if __name__ == "__main__":
-    news_thread = threading.Thread(target=monitor_news, daemon=True)
+    news_thread = threading.Thread(target=safe_monitor_news, daemon=True)
     news_thread.start()
+
+    logging.info("Bot started. Listening for updates...")
+    while True:
+        try:
+            bot.infinity_polling()
+        except Exception as e:
+            logging.error(f"Bot polling crashed: {e}")
+            time.sleep(5)    
