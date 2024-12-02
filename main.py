@@ -85,45 +85,42 @@ def fetch_feed_with_timeout(url, timeout=10):
         logging.error(f"Failed to fetch feed {url}: {e}")
         return {"entries": []}
 
+
 def fetch_new_articles(lang, feeds):
-    """Fetch new articles from given feeds, only if they were published in the last few minutes."""
+    """Fetch new articles from given feeds and check for articles published recently."""
     new_articles = []
-    now_utc = datetime.now(pytz.UTC)  # Get current UTC time
-    threshold = timedelta(minutes=5)  # Define threshold for "latest news" (e.g., 5 minutes)
-    
     for feed in feeds:
         feed_url = feed["url"]
         logging.info(f"Fetching feed: {feed_url}")
-        try:
-            feed_parsed = fetch_feed_with_timeout(feed_url)
-            logging.info(f"Feed parsed successfully for {feed_url}. Found {len(feed_parsed.entries)} entries.")
-        except Exception as e:
-            logging.error(f"Failed to parse feed {feed_url}: {e}")
-            continue
-
+        
+        # Fetch the feed (use your own feedparser function here)
+        feed_parsed = feedparser.parse(feed_url)
+        
         for entry in feed_parsed.entries:
             published_time = entry.get("published", None)
             if published_time:
                 try:
-                    # Parse the published time
+                    # Parse the published date
                     published_datetime = dateutil_parser.parse(published_time)
-                    
-                    # Convert to UTC for consistent comparison
-                    published_datetime = published_datetime.astimezone(pytz.UTC)
 
-                    # Calculate time difference
+                    # Ensure the datetime is in UTC for consistency
+                    published_datetime = published_datetime.astimezone(pytz.UTC)
+                    now_utc = datetime.now(pytz.UTC)
+
+                    # Calculate the time difference
                     time_difference = now_utc - published_datetime
-                    
-                    # Only consider articles published within the last 'X' minutes
-                    if time_difference <= threshold:
-                        # Only post if this article has not been posted already
+
+                    # Compare with a threshold (e.g., 2 minutes)
+                    if time_difference <= timedelta(minutes=2):
                         if entry.link not in posted_articles[lang]:
                             new_articles.append(entry)
                             posted_articles[lang].add(entry.link)
+
                 except Exception as e:
                     logging.error(f"Error processing publish date for {entry.title}: {e}")
-                    
+    
     return new_articles
+
 
 def format_article_message(article):
     return f"📰 {article.title}\n<a href='{article.link}'>Читать дальше</a>"
@@ -235,16 +232,17 @@ def safe_monitor_news():
             time.sleep(5)  # Wait before restarting
         
 if __name__ == "__main__":
+    # Start the news monitoring thread
     news_thread = threading.Thread(target=safe_monitor_news, daemon=True)
     news_thread.start()
 
     logging.info("Bot started. Listening for updates...")
-    while True:
-        try:
-            bot.infinity_polling()
-        except KeyboardInterrupt:
-            logging.info("KeyboardInterrupt received. Stopping the bot.")            
-            bot.stop_polling()
-        except Exception as e:
-            logging.error(f"Bot polling crashed: {e}")
-            time.sleep(5)
+    
+    try:
+        # Start polling for bot updates
+        bot.infinity_polling()
+    except KeyboardInterrupt:
+        logging.info("Bot stopped manually with CTRL+C")
+    except Exception as e:
+        logging.error(f"Bot polling crashed: {e}")
+        time.sleep(5)  # Wait before restarting
