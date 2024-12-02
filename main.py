@@ -10,6 +10,9 @@ import os
 import logging
 import requests
 import pytz
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import backoff
 
 load_dotenv()
 
@@ -50,21 +53,32 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("bot.log"),
+        logging.FileHandler("bot.log", encoding="utf-8"),
         logging.StreamHandler()
     ]
 )
 
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
-
-def fetch_feed_with_timeout(url, timeout=10):
+def create_session():
     session = requests.Session()
-    retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
-    session.mount("https://", HTTPAdapter(max_retries=retries))
+    retry = Retry(
+        total=3,  # Retry up to 3 times
+        backoff_factor=1,  # Delay between retries, e.g., 1s, 2s, 4s
+        status_forcelist=[500, 502, 503, 504],  # Retry on server errors
+        allowed_methods=["GET", "POST", "OPTIONS"]  # Retry only specific methods (replaces method_whitelist)
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
+@backoff.on_exception(backoff.expo, requests.exceptions.RequestException, max_tries=5)
+def fetch_feed_with_timeout(url, timeout=10):
+    """Fetch RSS feed with a timeout."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
     try:
-        response = session.get(url, timeout=timeout)
+        response = requests.get(url, headers=headers, timeout=timeout)
         response.raise_for_status()
         return feedparser.parse(response.content)
     except requests.exceptions.RequestException as e:
