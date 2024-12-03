@@ -51,6 +51,7 @@ Error logs capture issues for debugging.
 - Backoff
 - Python-dateutil
 - PyTZ
+
 Install all dependencies using `pip install -r requirements.txt.`
 
 ## Usage
