@@ -34,8 +34,8 @@ CHANNEL_FEEDS = {
         "@your_channel_en": {"language": "EN", "feeds": RSS_FEEDS["EN"]},
         "@your_channel_ru": {"language": "RU", "feeds": RSS_FEEDS["RU"]},
     }
-Fetching interval can be adjusted using the `FETCH_INTERVAL` variable
 ```
+Fetching interval can be adjusted using the `FETCH_INTERVAL` variable
 
 ## Logging
 Logs are saved to a file named `bot.log` and printed to the console:
