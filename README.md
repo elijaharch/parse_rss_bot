@@ -29,32 +29,34 @@ A Python-based Telegram bot for fetching and posting RSS feed updates to specifi
 
 ## Configuration
 Map Telegram channels to feeds using the ```CHANNEL_FEEDS``` dictionary:
-    ```python
-    CHANNEL_FEEDS = {
+```python
+CHANNEL_FEEDS = {
         "@your_channel_en": {"language": "EN", "feeds": RSS_FEEDS["EN"]},
         "@your_channel_ru": {"language": "RU", "feeds": RSS_FEEDS["RU"]},
     }
 Fetching interval can be adjusted using the `FETCH_INTERVAL` variable
+```
 
 ## Logging
-Logs are saved to a file named bot.log and printed to the console:
+Logs are saved to a file named `bot.log` and printed to the console:
 
-Info logs track bot activity.
+- Info logs track bot activity.
 Error logs capture issues for debugging.
 
 ## Dependencies
-Telebot
-Feedparser
-Dotenv
-Requests
-Backoff
-Python-dateutil
-Install all dependencies using `bash pip install -r requirements.txt.`
+- Telebot
+- Feedparser
+- Dotenv
+- Requests
+- Backoff
+- Python-dateutil
+- PyTZ
+Install all dependencies using `pip install -r requirements.txt.`
 
 ## Usage
-Add your Telegram bot token to the .env file.
-Configure RSS feeds and Telegram channels in the script.
-Run the bot to start monitoring and posting updates.
+- Add your Telegram bot token to the .env file.
+- Configure RSS feeds and Telegram channels in the script.
+- Run the bot to start monitoring and posting updates.
 
 ## Contributing
 Contributions are welcome! Fork the repository, create a branch, and submit a pull request with your improvements.
